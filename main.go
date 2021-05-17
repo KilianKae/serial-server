@@ -1,16 +1,14 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
+	"github.com/KilianKae/serial-server/internal/serial"
 	"log"
 	"net/http"
 	"time"
 
 	rice "github.com/GeertJohan/go.rice"
-	"github.com/tarm/serial"
-	"go.bug.st/serial/enumerator"
 )
 
 const(
@@ -19,33 +17,6 @@ const(
 )
 
 func main() {
-	fmt.Println("Looking for ports")
-	ports, _ := enumerator.GetDetailedPortsList()
-	fmt.Println("Ports: ",ports)
-
-	var c *serial.Config
-	var scanner *bufio.Scanner
-	var serialPort *serial.Port
-	for _, port := range ports {
-		fmt.Println("Checking port: ", port)
-		if port.IsUSB {
-			c = &serial.Config{Name: port.Name, Baud: 115200}
-
-			var err error
-			serialPort, err = serial.OpenPort(c)
-			if err != nil {
-				continue
-			}
-
-			scanner = bufio.NewScanner(serialPort)
-			scanner.Scan()
-			if scanner.Text() == "Setup" {
-				fmt.Println("Found port: ", port)
-				break
-			}
-		}
-	}
-
 	//Define the rice box with the frontend client static files.
 	appBox, err := rice.FindBox("./client/build")
 	if err != nil {
@@ -62,13 +33,17 @@ func main() {
 	http.HandleFunc("/", serveAppHandler(appBox))
 
 	// Serial
+	serialService := serial.NewService()
+	err = serialService.FindPort()
 	if err == nil {
-		go readFromSerial(scanner)
+		go serialService.Read()
 
-		http.HandleFunc("/api/write", writeHandler(serialPort))
+		http.HandleFunc("/api/write", writeHandler(serialService))
 	}
 
-	http.HandleFunc("/api/status", statusHandler(c, err))
+	http.HandleFunc("/api/ports", portsHandler(serialService))
+
+	http.HandleFunc("/api/status", statusHandler(serialService))
 
 	log.Printf("Server starting at %s%s", address, port)
 
@@ -77,29 +52,21 @@ func main() {
 	}
 }
 
-func readFromSerial(s *bufio.Scanner) {
-	for s.Scan() {
-		log.Printf(s.Text())
+func portsHandler(s serial.Service) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		resp := s.Ports()
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET")
+		w.Header().Set("Access-Control-Allow-Headers", "x-custom-header")
+		json.NewEncoder(w).Encode(resp)
 	}
 }
 
-type StatusResponse struct {
-	Name        string 			`json:"name"`
-	Baud        int 			`json:"baud"`
-	ReadTimeout time.Duration 	`json:"teadTimeout"`
-	Size        byte 			`json:"size"`
-	Error		string			`json:"error"`
-}
-
-func statusHandler(c *serial.Config, err ...interface{}) http.HandlerFunc {
+func statusHandler(s serial.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		resp := StatusResponse{
-			Name:        c.Name,
-			Baud:        c.Baud,
-			ReadTimeout: c.ReadTimeout,
-			Size:        c.Size,
-			Error: 		 fmt.Sprint(err...),
-		}
+		resp := s.Status()
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -114,11 +81,11 @@ type WriteResponse struct {
 	Message  string `json:"message"`
 }
 
-func writeHandler(s *serial.Port) http.HandlerFunc {
+func writeHandler(s serial.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var resp WriteResponse
 
-		_, err := s.Write([]byte("test"))
+		err := s.Write("test")
 		log.Printf("Writing %s", "test")
 		if err != nil {
 			resp = WriteResponse{Success: true, Message: fmt.Sprintf("Writing %s", err.Error())}
