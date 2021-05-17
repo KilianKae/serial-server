@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,6 +10,7 @@ import (
 
 	rice "github.com/GeertJohan/go.rice"
 	"github.com/tarm/serial"
+	"go.bug.st/serial/enumerator"
 )
 
 const(
@@ -17,6 +19,33 @@ const(
 )
 
 func main() {
+	fmt.Println("Looking for ports")
+	ports, _ := enumerator.GetDetailedPortsList()
+	fmt.Println("Ports: ",ports)
+
+	var c *serial.Config
+	var scanner *bufio.Scanner
+	var serialPort *serial.Port
+	for _, port := range ports {
+		fmt.Println("Checking port: ", port)
+		if port.IsUSB {
+			c = &serial.Config{Name: port.Name, Baud: 115200}
+
+			var err error
+			serialPort, err = serial.OpenPort(c)
+			if err != nil {
+				continue
+			}
+
+			scanner = bufio.NewScanner(serialPort)
+			scanner.Scan()
+			if scanner.Text() == "Setup" {
+				fmt.Println("Found port: ", port)
+				break
+			}
+		}
+	}
+
 	//Define the rice box with the frontend client static files.
 	appBox, err := rice.FindBox("./client/build")
 	if err != nil {
@@ -33,12 +62,10 @@ func main() {
 	http.HandleFunc("/", serveAppHandler(appBox))
 
 	// Serial
-	c := &serial.Config{Name: "/dev/cu.usbserial-1460", Baud: 115200}
-	s, err := serial.OpenPort(c)
 	if err == nil {
-		go readFromSerial(s)
+		go readFromSerial(scanner)
 
-		http.HandleFunc("/api/write", writeHandler(s))
+		http.HandleFunc("/api/write", writeHandler(serialPort))
 	}
 
 	http.HandleFunc("/api/status", statusHandler(c, err))
@@ -48,30 +75,11 @@ func main() {
 	if err := http.ListenAndServe("localhost:8080", nil); err != nil {
 		log.Fatal(err)
 	}
-
-
-
-	//n, err := s.Write([]byte("test"))
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//
-	//buf := make([]byte, 128)
-	//n, err = s.Read(buf)
-	//if err != nil {
-	//	log.Fatal(err)
-	//}
-	//log.Print("%q", buf[:n])
 }
 
-func readFromSerial(s *serial.Port) {
-	for {
-		buf := make([]byte, 128)
-		n, err := s.Read(buf)
-		if err != nil {
-			log.Fatal(err)
-		}
-		log.Printf("%s", buf[:n])
+func readFromSerial(s *bufio.Scanner) {
+	for s.Scan() {
+		log.Printf(s.Text())
 	}
 }
 
