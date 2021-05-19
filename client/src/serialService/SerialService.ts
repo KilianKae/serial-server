@@ -34,3 +34,8 @@ export async function getPorts(): Promise<IPorts[]> {
   console.log(ports);
   return ports;
 }
+
+export async function write(s: String): Promise<void> {
+  console.log("Writing ", s)
+  await instance.post('/api/write', {data: s})
+}

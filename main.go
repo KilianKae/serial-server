@@ -1,12 +1,12 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"github.com/KilianKae/serial-server/internal/serial"
+	"github.com/labstack/echo/v4"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/KilianKae/serial-server/internal/serial"
 
 	rice "github.com/GeertJohan/go.rice"
 )
@@ -23,86 +23,35 @@ func main() {
 		log.Fatal(err)
 	}
 
-	//Define ping endpoint that responds with pong.
-	http.HandleFunc("/api/ping", pingHandler())
+	e := echo.New()
 
 
-	//Serve static files
-	http.Handle("/static/", http.FileServer(appBox.HTTPBox()))
-	//Serve SPA (Single Page Application)
-	http.HandleFunc("/", serveAppHandler(appBox))
+	//Serve static react files
+	staticFileServer := http.FileServer(appBox.HTTPBox())
+	e.GET("/*", echo.WrapHandler(staticFileServer))
 
 	// Serial
+
 	serialService := serial.NewService()
+	serialHandler := serial.NewSerialHandler(serialService)
 	err = serialService.FindPort()
 	if err == nil {
 		go serialService.Read()
 
-		http.HandleFunc("/api/write", writeHandler(serialService))
+		e.POST("/api/write", serialHandler.Write)
 	}
 
-	http.HandleFunc("/api/ports", portsHandler(serialService))
+	e.GET("/api/ports", serialHandler.GetPorts)
 
-	http.HandleFunc("/api/status", statusHandler(serialService))
+	e.POST("/api/port", serialHandler.SetPort)
+
+	e.GET("/api/status", serialHandler.GetStatus)
 
 	log.Printf("Server starting at %s%s", address, port)
 
-	if err := http.ListenAndServe("localhost:8080", nil); err != nil {
-		log.Fatal(err)
-	}
+	e.Logger.Fatal(e.Start(":8080"))
 }
 
-func portsHandler(s serial.Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		resp := s.Ports()
-
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET")
-		w.Header().Set("Access-Control-Allow-Headers", "x-custom-header")
-		json.NewEncoder(w).Encode(resp)
-	}
-}
-
-func statusHandler(s serial.Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		resp := s.Status()
-
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET")
-		w.Header().Set("Access-Control-Allow-Headers", "x-custom-header")
-		json.NewEncoder(w).Encode(resp)
-	}
-}
-
-type WriteResponse struct {
-	Success bool    `json:"success"`
-	Message  string `json:"message"`
-}
-
-func writeHandler(s serial.Service) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var resp WriteResponse
-
-		err := s.Write("test")
-		log.Printf("Writing %s", "test")
-		if err != nil {
-			resp = WriteResponse{Success: true, Message: fmt.Sprintf("Writing %s", err.Error())}
-		} else {
-			resp = WriteResponse{Success: true, Message: fmt.Sprintf("Writing %s", "test")}
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-	}
-}
-
-func pingHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Pong"))
-	}
-}
 
 func serveAppHandler(app *rice.Box) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

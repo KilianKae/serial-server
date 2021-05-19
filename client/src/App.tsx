@@ -1,22 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
-import { getStatus, getPorts, IStatus, IPorts } from './SerialService/serialService';
+import { getStatus, IStatus } from './serialService/SerialService';
+import Ports from "./components/ports/Ports";
+import Mode from "./components/mode/Mode";
 
 function App() {
   let [status, setStatus] = useState<IStatus | undefined>(undefined);
-  let [ports, setPorts] = useState<IPorts[]>([]);
 
   useEffect(() => {
     getStatus().then((status) => setStatus(status));
-    getPorts().then((ports) => setPorts(ports));
   }, []);
-
-  let portsRows = [];
-
-  for (let port of ports) {
-    portsRows.push(<option value={port.Name}>{port.Name}</option>);
-  }
 
   return (
     <div className='App'>
@@ -28,13 +22,8 @@ function App() {
         {status?.error ? `Error: ${status.error}` : 'Everything is in order'}
         <br />
       </p>
-      <form>
-        <label htmlFor="ports">Ports:</label>
-        <select name="ports" id="ports">
-          {portsRows}
-        </select>
-          <input type="submit" value="Submit"/>
-      </form>
+      <Ports />
+      <Mode name="Random Walk" value="randomWalk"/>
     </div>
   );
 }

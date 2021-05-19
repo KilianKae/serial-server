@@ -15,8 +15,9 @@ type Service interface {
 	FindPort() 		error
 	Read()
 	Write(string) 	error
-	Status()        StatusResponse
+	GetStatus()     StatusResponse
 	Ports() 		[]*enumerator.PortDetails
+	SetPort(int)    error
 }
 
 type utility struct {
@@ -31,13 +32,36 @@ func NewService() Service {
 }
 
 func (u *utility) Ports() (portList []*enumerator.PortDetails) {
+	portList = make([]*enumerator.PortDetails, 0)
+
 	ports, _ := enumerator.GetDetailedPortsList()
 	for _, port := range ports {
 		if port.IsUSB {
 			portList = append(portList, port)
 		}
 	}
+
 	return portList
+}
+
+func (u *utility) SetPort(n int) error {
+	ports, _ := enumerator.GetDetailedPortsList()
+	port := ports[n]
+	u.config = &serial.Config{Name: port.Name, Baud: 115200}
+
+	var err error
+	u.serialPort, err = serial.OpenPort(u.config)
+	if err != nil {
+		return err
+	}
+
+	u.scanner = bufio.NewScanner(u.serialPort)
+	u.scanner.Scan()
+	if u.scanner.Text() == "Setup" {
+		fmt.Println("Found port: ", port)
+		return nil
+	}
+	return errors.New("port open error")
 }
 
 func (u *utility) FindPort() error {
@@ -84,7 +108,7 @@ type StatusResponse struct {
 	Error		string			`json:"error"`
 }
 
-func (u *utility) Status() StatusResponse {
+func (u *utility) GetStatus() StatusResponse {
 	status := StatusResponse{
 		Name:        u.config.Name,
 		Baud:        u.config.Baud,
